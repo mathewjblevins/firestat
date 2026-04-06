@@ -486,19 +486,18 @@ function useFallbackCSV() {
 
 // ── Boot ──
 window.addEventListener('DOMContentLoaded', () => {
+  // Always boot from CSV — fast, no credentials needed
+  // Supabase creds saved silently for SQL Query tab if present
   const savedUrl = localStorage.getItem('fs_url');
   const savedKey = localStorage.getItem('fs_key');
   if (savedUrl && savedKey) {
-    SUPABASE_URL = savedUrl; SUPABASE_KEY = savedKey;
+    SUPABASE_URL = savedUrl;
+    SUPABASE_KEY = savedKey;
     document.getElementById('cfg-url').value = savedUrl;
     document.getElementById('cfg-key').value = savedKey;
-    document.getElementById('config-banner').style.display = 'none';
-    bootFromSupabase();
-  } else {
-    // Auto-load CSV fallback so site works without Supabase setup
-    document.getElementById('config-banner').style.display = 'none';
-    useFallbackCSV();
   }
+  document.getElementById('config-banner').style.display = 'none';
+  useFallbackCSV();
 });
 
 async function bootFromSupabase() {
