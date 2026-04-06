@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FireStat — NFIRS Fire Department Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<style>
+/* ── CONFIG BANNER ── */
+#config-banner {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.85); display: flex;
+  align-items: center; justify-content: center;
+}
+.config-box {
+  background: #111318; border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 12px; padding: 36px 40px; width: 520px; max-width: 94vw;
+}
+.config-title { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; margin-bottom:6px; color:#e8eaf0; }
+.config-desc  { font-size:12px; color:#8b90a0; margin-bottom:20px; line-height:1.6; }
+.config-field { margin-bottom:14px; }
+.config-label { font-size:10px; font-family:'DM Mono',monospace; color:#555b6a; display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:.07em; }
+.config-input { width:100%; padding:8px 12px; background:#1e2229; border:1px solid rgba(255,255,255,0.13); border-radius:8px; color:#e8eaf0; font-family:'DM Mono',monospace; font-size:12px; }
+.config-input:focus { outline:none; border-color:#ff5533; }
+.config-row { display:flex; gap:10px; margin-top:18px; }
+.config-note { font-size:10px; color:#555b6a; font-family:'DM Mono',monospace; margin-top:12px; line-height:1.6; }
+.config-note a { color:#3b8fdd; text-decoration:none; }
+
+/* ── LOADING OVERLAY ── */
+#loading {
+  position:fixed; inset:0; z-index:500; background:#0a0c10;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+}
+.loading-icon { width:40px; height:40px; background:#ff5533; clip-path:polygon(50% 0%,100% 35%,100% 100%,0% 100%,0% 35%); animation:pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(.9)} }
+.loading-text { font-family:'DM Mono',monospace; font-size:12px; color:#555b6a; }
+
+:root {
+  --bg:#0a0c10; --bg2:#111318; --bg3:#181b22;
+  --surface:#1e2229; --surface2:#252b35;
+  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.13);
+  --text:#e8eaf0; --text2:#8b90a0; --text3:#555b6a;
+  --accent:#ff5533; --accent2:#ff7755; --glow:rgba(255,85,51,0.18);
+  --blue:#3b8fdd; --blue2:#5aabff;
+  --green:#34c472; --yellow:#f5bc44; --purple:#9b72ff;
+  --r:8px; --r2:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden}
+.app{display:flex;min-height:100vh}
+.sidebar{width:218px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{flex:1;min-width:0}
+
+/* Sidebar */
+.logo{padding:22px 20px 14px;border-bottom:1px solid var(--border)}
+.logo-mark{display:flex;align-items:center;gap:10px;margin-bottom:3px}
+.logo-icon{width:26px;height:26px;background:var(--accent);clip-path:polygon(50% 0%,100% 35%,100% 100%,0% 100%,0% 35%);flex-shrink:0}
+.logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:17px;letter-spacing:-.5px}
+.logo-ver{font-size:9px;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;padding-left:36px;font-family:'DM Mono',monospace}
+.nav{padding:10px 0;flex:1}
+.nav-label{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'DM Mono',monospace;padding:10px 20px 3px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:7px 12px;margin:0 8px;border-radius:var(--r);cursor:pointer;transition:all .15s;color:var(--text2);font-size:12.5px}
+.nav-item:hover{background:var(--surface);color:var(--text)}
+.nav-item.active{background:var(--glow);color:var(--accent2);border:1px solid rgba(255,85,51,.22)}
+.nav-item .icon{width:15px;text-align:center;font-size:13px;flex-shrink:0}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;line-height:1.8}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--text3);margin-right:5px;vertical-align:middle}
+.dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot.db{background:var(--blue);box-shadow:0 0 6px var(--blue)}
+
+/* Topbar */
+.topbar{height:50px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 22px;gap:14px;position:sticky;top:0;z-index:20}
+.topbar-title{font-family:'Syne',sans-serif;font-weight:700;font-size:14px;flex:1}
+.topbar-actions{display:flex;gap:7px;align-items:center}
+.btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-size:11.5px;cursor:pointer;transition:all .15s;font-family:'DM Sans',sans-serif;white-space:nowrap}
+.btn:hover{background:var(--surface2);color:var(--text)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+.btn.primary:hover{background:var(--accent2)}
+.btn.blue{background:rgba(59,143,221,.15);border-color:rgba(59,143,221,.35);color:var(--blue2)}
+.btn.blue:hover{background:rgba(59,143,221,.25)}
+
+/* Pages */
+.page{padding:24px 26px;display:none}
+.page.active{display:block;animation:fadeUp .2s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.page-header{margin-bottom:20px}
+.page-title{font-family:'Syne',sans-serif;font-weight:700;font-size:20px;letter-spacing:-.4px}
+.page-desc{font-size:12px;color:var(--text2);margin-top:3px}
+
+/* Cards */
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:18px 20px}
+.card-title{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:12px}
+
+/* KPI grid */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:14px 16px;position:relative;overflow:hidden;transition:border-color .2s}
+.kpi:hover{border-color:var(--border2)}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.kpi.good::before{background:var(--green)}.kpi.warn::before{background:var(--yellow)}.kpi.bad::before{background:var(--accent)}.kpi.neu::before{background:var(--blue)}
+.kpi-label{font-size:10px;color:var(--text3);margin-bottom:5px;font-family:'DM Mono',monospace}
+.kpi-value{font-size:22px;font-weight:500;font-family:'Syne',sans-serif;line-height:1}
+.kpi-sub{font-size:10px;color:var(--text2);margin-top:5px}
+.kpi-delta{font-size:10px;margin-top:3px}
+.kpi-delta.pos{color:var(--green)}.kpi-delta.neg{color:var(--accent)}
+
+/* Charts */
+.chart-grid{display:grid;gap:14px;margin-bottom:18px}
+.chart-grid.c2{grid-template-columns:1fr 1fr}.chart-grid.c3{grid-template-columns:1fr 1fr 1fr}
+.chart-wrap canvas{max-height:260px}
+
+/* Tables */
+.table-wrap{overflow:auto;border-radius:var(--r2);border:1px solid var(--border)}
+.data-table{width:100%;border-collapse:collapse;font-size:11px}
+.data-table th{text-align:left;padding:7px 10px;background:var(--surface);color:var(--text2);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--border2);cursor:pointer;white-space:nowrap}
+.data-table th:hover{color:var(--text)}
+.data-table td{padding:7px 10px;border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;color:var(--text)}
+.data-table tr:hover td{background:var(--surface)}
+.data-table .hi{color:var(--accent2);font-weight:500}
+
+/* Badges */
+.badge{display:inline-block;padding:2px 7px;border-radius:100px;font-size:9.5px;font-family:'DM Mono',monospace;font-weight:500}
+.badge.top{background:rgba(52,196,114,.13);color:var(--green)}
+.badge.mid{background:rgba(245,188,68,.13);color:var(--yellow)}
+.badge.low{background:rgba(255,85,51,.13);color:var(--accent2)}
+.badge.neu{background:var(--surface);color:var(--text2)}
+
+/* Filters */
+.filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+.filter-chip{padding:4px 11px;border-radius:100px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-size:10px;cursor:pointer;transition:all .15s;font-family:'DM Mono',monospace}
+.filter-chip:hover{border-color:var(--accent);color:var(--accent2)}
+.filter-chip.active{background:var(--glow);border-color:rgba(255,85,51,.35);color:var(--accent2)}
+.dept-input{padding:7px 11px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:'DM Mono',monospace;font-size:12px;transition:border-color .15s}
+.dept-input:focus{outline:none;border-color:var(--accent)}
+select{padding:6px 9px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:11.5px;font-family:'DM Mono',monospace;cursor:pointer}
+select:focus{outline:none;border-color:var(--accent)}
+.sel-label{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;display:block;margin-bottom:3px}
+
+/* Peer bars */
+.peer-bar{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.peer-bar-label{width:150px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'DM Mono',monospace;font-size:9.5px}
+.peer-bar-track{flex:1;height:5px;background:var(--surface2);border-radius:99px;overflow:hidden}
+.peer-bar-fill{height:100%;border-radius:99px;transition:width .5s cubic-bezier(.34,1.56,.64,1)}
+.peer-bar-val{width:46px;text-align:right;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--text2)}
+
+/* Regression */
+.reg-card{background:var(--surface);border-radius:var(--r2);padding:14px 18px;border-left:3px solid var(--blue)}
+.reg-equation{font-family:'DM Mono',monospace;font-size:12px;color:var(--blue2);margin:6px 0}
+.reg-stats{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px}
+.reg-stat{font-size:10px;color:var(--text2);font-family:'DM Mono',monospace}
+.reg-stat span{color:var(--text)}
+
+/* Corr matrix */
+.corr-table{border-collapse:collapse;font-size:9.5px}
+.corr-table th{padding:5px 8px;color:var(--text2);font-family:'DM Mono',monospace;white-space:nowrap;font-size:9px}
+.corr-table td{padding:3px 5px;text-align:center;width:48px;height:28px;border-radius:3px;cursor:pointer;font-family:'DM Mono',monospace;font-size:9px;transition:transform .1s}
+.corr-table td:hover{transform:scale(1.12);z-index:1;position:relative}
+
+/* Map */
+.map-state{cursor:pointer;transition:opacity .15s}
+.map-state:hover{opacity:.75}
+.map-tooltip{position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:10px 14px;font-size:11px;pointer-events:none;z-index:200;display:none}
+.map-tooltip.show{display:block}
+
+/* Compare */
+.compare-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:10px;margin-bottom:16px}
+.compare-slot{background:var(--surface);border:1px solid var(--border);border-radius:var(--r2);padding:12px 14px;position:relative}
+.compare-slot.pinned{border-color:rgba(59,143,221,.4)}
+.compare-slot-name{font-size:12px;font-weight:500;color:var(--text);margin-bottom:3px;font-family:'Syne',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.compare-slot-meta{font-size:9.5px;color:var(--text3);font-family:'DM Mono',monospace}
+.remove-btn{position:absolute;top:8px;right:8px;width:18px;height:18px;border-radius:50%;background:var(--surface2);border:none;color:var(--text3);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center}
+.remove-btn:hover{background:rgba(255,85,51,.2);color:var(--accent2)}
+
+/* SQL */
+.sql-textarea{width:100%;height:110px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:10px;resize:vertical}
+.sql-textarea:focus{outline:none;border-color:var(--accent)}
+
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--surface2);border-radius:99px}
+</style>
+</head>
+<body>
+
+<!-- ── CONFIG BANNER ─────────────────────────────────────── -->
+<div id="config-banner">
+  <div class="config-box">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="width:24px;height:24px;background:#ff5533;clip-path:polygon(50% 0%,100% 35%,100% 100%,0% 100%,0% 35%)"></div>
+      <span style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#e8eaf0">FireStat</span>
+    </div>
+    <div class="config-title">Connect to Supabase</div>
+    <div class="config-desc">Enter your Supabase project credentials below. These are stored only in your browser's localStorage and never sent anywhere except Supabase.</div>
+    <div class="config-field">
+      <label class="config-label">Supabase Project URL</label>
+      <input class="config-input" id="cfg-url" placeholder="https://xxxxxxxxxxxx.supabase.co" type="url">
+    </div>
+    <div class="config-field">
+      <label class="config-label">Supabase Anon (Public) Key</label>
+      <input class="config-input" id="cfg-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." type="text">
+    </div>
+    <div class="config-row">
+      <button class="btn primary" onclick="saveConfig()" style="flex:1;padding:9px">Connect →</button>
+      <button class="btn" onclick="useFallbackCSV()" style="flex:1;padding:9px">Use local CSV instead</button>
+    </div>
+    <div class="config-note">
+      Find these in your Supabase project → Settings → API.<br>
+      Use the <strong>anon</strong> key (public, safe for browser).<br>
+      <a href="https://supabase.com/dashboard" target="_blank">Open Supabase Dashboard →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── LOADING ────────────────────────────────────────────── -->
+<div id="loading" style="display:none">
+  <div class="loading-icon"></div>
+  <div class="loading-text" id="loading-text">Loading departments…</div>
+</div>
+
+<!-- ── APP ───────────────────────────────────────────────── -->
+<div class="app">
+<nav class="sidebar">
+  <div class="logo">
+    <div class="logo-mark"><div class="logo-icon"></div><span class="logo-text">FireStat</span></div>
+    <div class="logo-ver">NFIRS Analytics · v2.1</div>
+  </div>
+  <div class="nav">
+    <div class="nav-label">Overview</div>
+    <div class="nav-item active" onclick="nav('overview',this)"><span class="icon">◈</span>Dashboard</div>
+    <div class="nav-item" onclick="nav('lookup',this)"><span class="icon">◎</span>Dept. Lookup</div>
+    <div class="nav-label">Visualizations</div>
+    <div class="nav-item" onclick="nav('map',this)"><span class="icon">⊙</span>State Map</div>
+    <div class="nav-item" onclick="nav('compare',this)"><span class="icon">⊞</span>Multi-Dept Compare</div>
+    <div class="nav-item" onclick="nav('trends',this)"><span class="icon">⌁</span>Time Series</div>
+    <div class="nav-label">Analysis</div>
+    <div class="nav-item" onclick="nav('peers',this)"><span class="icon">⊡</span>Peer Groups</div>
+    <div class="nav-item" onclick="nav('correlations',this)"><span class="icon">⊹</span>Correlations</div>
+    <div class="nav-item" onclick="nav('scatter',this)"><span class="icon">⌖</span>Scatter Explorer</div>
+    <div class="nav-item" onclick="nav('regression',this)"><span class="icon">◇</span>Regression</div>
+    <div class="nav-label">Benchmarks</div>
+    <div class="nav-item" onclick="nav('rankings',this)"><span class="icon">⊿</span>Rankings</div>
+    <div class="nav-item" onclick="nav('distributions',this)"><span class="icon">⊟</span>Distributions</div>
+    <div class="nav-label">Data</div>
+    <div class="nav-item" onclick="nav('sqlquery',this)"><span class="icon">⊛</span>SQL Query</div>
+    <div class="nav-item" onclick="nav('rawdata',this)"><span class="icon">≡</span>Raw Data</div>
+  </div>
+  <div class="sidebar-footer">
+    <div><span class="dot" id="s-dot"></span><span id="s-text">Connecting…</span></div>
+    <div style="margin-top:2px"><span class="dot" id="d-dot"></span><span id="d-text">0 departments</span></div>
+    <div style="margin-top:6px">
+      <span style="cursor:pointer;color:var(--text3)" onclick="resetConfig()">↺ Reconnect</span>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+<div class="topbar">
+  <div class="topbar-title" id="page-title">Dashboard</div>
+  <div class="topbar-actions">
+    <span id="topbar-source" style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace"></span>
+    <button class="btn" onclick="refreshData()">↻ Refresh</button>
+  </div>
+</div>
+
+<!-- Pages (same structure as v2, content injected by JS) -->
+<div class="page active" id="page-overview">
+  <div class="page-header"><div class="page-title">Dashboard</div><div class="page-desc" id="ov-desc">Loading…</div></div>
+  <div class="kpi-grid" id="ov-kpis"></div>
+  <div class="chart-grid c2">
+    <div class="card"><div class="card-title">Response Time Distribution</div><div class="chart-wrap"><canvas id="ch-rt-dist"></canvas></div></div>
+    <div class="card"><div class="card-title">Containment Rate by Peer Group</div><div class="chart-wrap"><canvas id="ch-contain"></canvas></div></div>
+  </div>
+  <div class="chart-grid c2">
+    <div class="card"><div class="card-title">Department Type Mix</div><div class="chart-wrap"><canvas id="ch-types"></canvas></div></div>
+    <div class="card"><div class="card-title">Best States — Avg Response Time</div><div class="chart-wrap"><canvas id="ch-states"></canvas></div></div>
+  </div>
+</div>
+
+<div class="page" id="page-lookup">
+  <div class="page-header"><div class="page-title">Department Lookup</div><div class="page-desc">Full performance profile vs peer group and national benchmarks</div></div>
+  <div style="display:flex;gap:8px;margin-bottom:18px">
+    <input class="dept-input" id="fdid-in" placeholder="State-FDID or dept name…" list="fdid-dl" style="width:260px" oninput="lookupDept(this.value)">
+    <datalist id="fdid-dl"></datalist>
+    <button class="btn primary" onclick="lookupDept(document.getElementById('fdid-in').value)">Search</button>
+  </div>
+  <div id="lookup-out"></div>
+</div>
+
+<div class="page" id="page-map">
+  <div class="page-header"><div class="page-title">State Map</div><div class="page-desc">Average metric by state — hover for values</div></div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
+    <div><label class="sel-label">Metric</label><select id="map-metric" onchange="renderMap()"></select></div>
+    <div><label class="sel-label">Peer group</label>
+      <select id="map-peer" onchange="renderMap()"><option value="">All</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option></select>
+    </div>
+  </div>
+  <div class="card"><div id="map-container"></div><div class="map-legend" id="map-legend" style="display:flex;align-items:center;gap:8px;font-size:10px;color:var(--text2);font-family:'DM Mono',monospace;margin-top:10px;flex-wrap:wrap"></div></div>
+  <div class="card" style="margin-top:14px"><div class="card-title">State Rankings</div><div class="table-wrap" id="map-table"></div></div>
+</div>
+
+<div class="page" id="page-compare">
+  <div class="page-header"><div class="page-title">Multi-Department Compare</div><div class="page-desc">Pin up to 6 departments and compare all metrics side-by-side</div></div>
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <input class="dept-input" id="cmp-search" placeholder="Search to add…" list="cmp-dl" style="width:260px">
+    <datalist id="cmp-dl"></datalist>
+    <button class="btn primary" onclick="addToCompare(document.getElementById('cmp-search').value)">+ Add</button>
+    <button class="btn" onclick="clearCompare()">Clear all</button>
+  </div>
+  <div class="compare-slots" id="cmp-slots"></div>
+  <div id="cmp-content"></div>
+</div>
+
+<div class="page" id="page-trends">
+  <div class="page-header"><div class="page-title">Time Series</div><div class="page-desc">Trend analysis by peer group, state, or dept type</div></div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
+    <div><label class="sel-label">Metric</label><select id="ts-metric" onchange="renderTrends()"></select></div>
+    <div><label class="sel-label">Group by</label>
+      <select id="ts-group" onchange="renderTrends()"><option value="PEER_GROUP">Peer Group</option><option value="STATE">State</option><option value="DEPT_TYPE">Dept Type</option></select>
+    </div>
+    <div><label class="sel-label">Highlight dept</label><input class="dept-input" id="ts-fdid" placeholder="State-FDID…" style="width:180px" oninput="renderTrends()"></div>
+  </div>
+  <div class="card"><div class="card-title">Distribution by Group</div><div class="chart-wrap"><canvas id="ch-trends" style="max-height:320px"></canvas></div></div>
+</div>
+
+<div class="page" id="page-peers">
+  <div class="page-header"><div class="page-title">Peer Group Analysis</div><div class="page-desc">Departments grouped by annual incident volume — eliminates workload bias</div></div>
+  <div class="filter-row">
+    <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">Group:</span>
+    <span class="filter-chip active" onclick="setPeer('all',this)">All</span>
+    <span class="filter-chip" onclick="setPeer('XS',this)">XS &lt;500</span>
+    <span class="filter-chip" onclick="setPeer('S',this)">S 500–2k</span>
+    <span class="filter-chip" onclick="setPeer('M',this)">M 2k–10k</span>
+    <span class="filter-chip" onclick="setPeer('L',this)">L 10k–50k</span>
+    <span class="filter-chip" onclick="setPeer('XL',this)">XL 50k+</span>
+    <span class="filter-chip" onclick="setPeer('career',this)">Career</span>
+    <span class="filter-chip" onclick="setPeer('vol',this)">Volunteer</span>
+  </div>
+  <div id="peers-out"></div>
+</div>
+
+<div class="page" id="page-correlations">
+  <div class="page-header"><div class="page-title">Correlation Matrix</div><div class="page-desc">Pearson r — click any cell to explore in scatter view</div></div>
+  <div class="chart-grid c2">
+    <div class="card" style="overflow:auto"><div class="card-title">Matrix</div><div id="corr-matrix"></div></div>
+    <div class="card"><div class="card-title">Strongest Correlations</div><div id="corr-hi"></div></div>
+  </div>
+</div>
+
+<div class="page" id="page-scatter">
+  <div class="page-header"><div class="page-title">Scatter Explorer</div><div class="page-desc">Any two variables, colored by group, with OLS fit</div></div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+    <div><label class="sel-label">X axis</label><select id="sc-x" onchange="updateScatter()"></select></div>
+    <div><label class="sel-label">Y axis</label><select id="sc-y" onchange="updateScatter()"></select></div>
+    <div><label class="sel-label">Color by</label>
+      <select id="sc-col" onchange="updateScatter()"><option value="PEER_GROUP">Peer Group</option><option value="DEPT_TYPE">Dept Type</option><option value="STATE">State</option></select>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;align-self:flex-end;padding-bottom:2px">
+      <input type="checkbox" id="sc-reg" checked onchange="updateScatter()"> Regression line
+    </label>
+  </div>
+  <div class="card"><div class="chart-wrap"><canvas id="ch-scatter" style="max-height:400px"></canvas></div></div>
+  <div id="sc-reg-info" style="margin-top:14px"></div>
+</div>
+
+<div class="page" id="page-regression">
+  <div class="page-header"><div class="page-title">OLS Regression</div><div class="page-desc">Predict an outcome from a predictor variable</div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+    <div>
+      <div style="margin-bottom:10px"><label class="sel-label">Dependent (Y)</label><select id="reg-y" onchange="runReg()"></select></div>
+      <div><label class="sel-label">Predictor (X)</label><select id="reg-x" onchange="runReg()"></select></div>
+    </div>
+    <div class="reg-card" id="reg-out" style="display:none">
+      <div class="card-title">OLS RESULT</div>
+      <div class="reg-equation" id="reg-eq"></div>
+      <div class="reg-stats" id="reg-stats"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:14px"><div class="card-title">Regression Plot</div><div class="chart-wrap"><canvas id="ch-reg" style="max-height:360px"></canvas></div></div>
+  <div class="card"><div class="card-title">Residuals</div><div class="chart-wrap"><canvas id="ch-res" style="max-height:180px"></canvas></div></div>
+</div>
+
+<div class="page" id="page-rankings">
+  <div class="page-header"><div class="page-title">National Rankings</div><div class="page-desc">Top and bottom performers by metric</div></div>
+  <div id="rankings-out" style="display:grid;grid-template-columns:1fr 1fr;gap:14px"></div>
+</div>
+
+<div class="page" id="page-distributions">
+  <div class="page-header"><div class="page-title">Distributions</div><div class="page-desc">Histogram, percentile curve, and descriptive stats</div></div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+    <div><label class="sel-label">Metric</label><select id="dist-m" onchange="renderDist()"></select></div>
+    <div><label class="sel-label">Highlight FDID</label><input class="dept-input" id="dist-fdid" placeholder="State-FDID…" style="width:180px" oninput="renderDist()"></div>
+  </div>
+  <div class="chart-grid c2" style="margin-bottom:14px">
+    <div class="card"><div class="card-title">Histogram</div><div class="chart-wrap"><canvas id="ch-hist"></canvas></div></div>
+    <div class="card"><div class="card-title">Percentile Curve</div><div id="dist-pct-label" style="font-size:11px;color:var(--text2);margin-bottom:8px"></div><div class="chart-wrap"><canvas id="ch-pct"></canvas></div></div>
+  </div>
+  <div class="card"><div class="card-title">Descriptive Statistics</div><div class="kpi-grid" id="dist-stats"></div></div>
+</div>
+
+<div class="page" id="page-sqlquery">
+  <div class="page-header"><div class="page-title">SQL Query</div><div class="page-desc">Run queries against Supabase via REST API</div></div>
+  <div style="margin-bottom:10px">
+    <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:6px">QUICK QUERIES</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap" id="quick-queries"></div>
+  </div>
+  <textarea class="sql-textarea" id="sql-input" placeholder="SELECT state, COUNT(*) as n, ROUND(AVG(response_time_avg),2) as avg_rt FROM departments GROUP BY state ORDER BY avg_rt LIMIT 20;"></textarea>
+  <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+    <button class="btn primary" onclick="runSQL()">▶ Run</button>
+    <button class="btn" onclick="document.getElementById('sql-input').value='';document.getElementById('sql-result').innerHTML=''">Clear</button>
+    <span id="sql-status" style="font-size:11px;color:var(--text2);font-family:'DM Mono',monospace"></span>
+  </div>
+  <div id="sql-result"></div>
+</div>
+
+<div class="page" id="page-rawdata">
+  <div class="page-header"><div class="page-title">Raw Data</div><div class="page-desc">Browse all 9,733 departments</div></div>
+  <div class="filter-row">
+    <input class="dept-input" id="tbl-search" placeholder="Search…" style="width:200px" oninput="filterTable(this.value)">
+    <select id="tbl-peer" onchange="filterTable(document.getElementById('tbl-search').value)">
+      <option value="">All groups</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option>
+    </select>
+  </div>
+  <div class="table-wrap" id="tbl-wrap"></div>
+  <div style="font-size:10px;color:var(--text3);margin-top:7px;font-family:'DM Mono',monospace" id="tbl-count"></div>
+</div>
+
+</div><!-- /main -->
+</div><!-- /app -->
+
+<div class="map-tooltip" id="map-tip"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// CONFIG & DATA SOURCE
+// ═══════════════════════════════════════════
+let SUPABASE_URL = '', SUPABASE_KEY = '', DATA = [], mapGeo = null;
+let pinnedDepts = [], curPeer = 'all', sortC = null, sortD = 1;
+const CHART_INST = {};
+
+const METRICS = [
+  {key:'RESPONSE_TIME_AVG', label:'Response Time (min)',    inv:true,  db:'response_time_avg'},
+  {key:'CONTAINMENT_RATE',  label:'Containment Rate (%)',   inv:false, db:'containment_rate'},
+  {key:'PROP_LOSS_ADJ',     label:'Adj. Property Loss (%)', inv:true,  db:'prop_loss_adj'},
+  {key:'FF_PER_1000_INC',   label:'FF / 1000 Incidents',   inv:false, db:'ff_per_1000_inc'},
+  {key:'CAREER_PCT',        label:'Career % Staff',         inv:false, db:'career_pct'},
+  {key:'TOTAL_INCIDENTS',   label:'Total Incidents',        inv:false, db:'total_incidents'},
+  {key:'STRUCTURE_FIRES',   label:'Structure Fires',        inv:false, db:'struct_fires'},
+];
+const PEER_C = {XS:'#9b72ff',S:'#3b8fdd',M:'#34c472',L:'#f5bc44',XL:'#ff5533'};
+
+// ── Config persistence ──
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim().replace(/\/$/, '');
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) { alert('Both URL and key are required.'); return; }
+  localStorage.setItem('fs_url', url);
+  localStorage.setItem('fs_key', key);
+  SUPABASE_URL = url; SUPABASE_KEY = key;
+  document.getElementById('config-banner').style.display = 'none';
+  bootFromSupabase();
+}
+function resetConfig() {
+  localStorage.removeItem('fs_url'); localStorage.removeItem('fs_key');
+  location.reload();
+}
+function useFallbackCSV() {
+  document.getElementById('config-banner').style.display = 'none';
+  showLoading('Loading CSV…');
+  // Try loading from same-origin data/departments.csv
+  fetch('./data/departments.csv')
+    .then(r => { if (!r.ok) throw new Error('CSV not found'); return r.text(); })
+    .then(txt => {
+      const result = Papa.parse(txt, {header:true, dynamicTyping:true, skipEmptyLines:true});
+      processData(result.data, 'CSV (local)');
+    })
+    .catch(() => { hideLoading(); alert('Could not load local CSV. Please configure Supabase.'); document.getElementById('config-banner').style.display='flex'; });
+}
+
+// ── Boot ──
+window.addEventListener('DOMContentLoaded', () => {
+  const savedUrl = localStorage.getItem('fs_url');
+  const savedKey = localStorage.getItem('fs_key');
+  if (savedUrl && savedKey) {
+    SUPABASE_URL = savedUrl; SUPABASE_KEY = savedKey;
+    document.getElementById('cfg-url').value = savedUrl;
+    document.getElementById('cfg-key').value = savedKey;
+    document.getElementById('config-banner').style.display = 'none';
+    bootFromSupabase();
+  }
+});
+
+async function bootFromSupabase() {
+  showLoading('Connecting to Supabase…');
+  try {
+    // Fetch all rows via Supabase REST (paginated — max 1000/request)
+    let all = [], offset = 0, pageSize = 1000;
+    while (true) {
+      setLoadingText(`Loading departments… ${all.length.toLocaleString()} so far`);
+      const res = await sbFetch(`/rest/v1/departments?select=*&limit=${pageSize}&offset=${offset}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const batch = await res.json();
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      all = all.concat(batch);
+      if (batch.length < pageSize) break;
+      offset += pageSize;
+    }
+    // Normalize column names to uppercase for compatibility with chart logic
+    const normalized = all.map(r => ({
+      STATE_FDID:       r.state_fdid,
+      STATE:            r.state,
+      FDID:             r.fdid,
+      DEPT_NAME:        r.dept_name,
+      DEPT_TYPE:        r.dept_type,
+      TOTAL_INCIDENTS:  r.total_incidents,
+      FIRE_INCIDENTS:   r.fire_incidents,
+      STRUCTURE_FIRES:  r.struct_fires,
+      EMS_INCIDENTS:    r.ems_incidents,
+      RESPONSE_TIME_AVG:r.response_time_avg,
+      CONTAINMENT_RATE: r.containment_rate,
+      PROP_LOSS_ADJ:    r.prop_loss_adj,
+      PROP_LOSS_USD:    r.prop_loss_usd,
+      TOTAL_FF:         r.total_ff,
+      FF_PER_1000_INC:  r.ff_per_1000_inc,
+      STATIONS:         r.stations,
+      CAREER_PCT:       r.career_pct,
+      PEER_GROUP:       r.peer_group,
+      RESP_NP:          r.resp_np,
+      CONT_NP:          r.cont_np,
+      RESP_PP:          r.resp_pp,
+      CONT_PP:          r.cont_pp,
+    }));
+    processData(normalized, 'Supabase');
+    setupQuickQueries();
+  } catch(e) {
+    hideLoading();
+    alert(`Failed to load from Supabase:\n${e.message}\n\nCheck your URL and key.`);
+    document.getElementById('config-banner').style.display = 'flex';
+  }
+}
+
+async function sbFetch(path, opts = {}) {
+  return fetch(SUPABASE_URL + path, {
+    ...opts,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {})
+    }
+  });
+}
+
+function refreshData() { if (SUPABASE_URL) bootFromSupabase(); }
+
+// ── Process ──
+function processData(rows, source) {
+  DATA = rows;
+  hideLoading();
+  setStatus(true, source, rows.length);
+  populateSelects(); populateDL();
+  document.getElementById('topbar-source').textContent = source;
+  renderOverview();
+}
+
+// ── Loading helpers ──
+function showLoading(msg) { document.getElementById('loading').style.display='flex'; setLoadingText(msg); }
+function hideLoading()    { document.getElementById('loading').style.display='none'; }
+function setLoadingText(t){ document.getElementById('loading-text').textContent = t; }
+function setStatus(ok, src, n) {
+  document.getElementById('s-dot').className = 'dot' + (ok ? ' db' : '');
+  document.getElementById('s-text').textContent = ok ? src : 'Disconnected';
+  document.getElementById('d-dot').className = 'dot' + (n > 0 ? ' live' : '');
+  document.getElementById('d-text').textContent = n ? n.toLocaleString() + ' departments' : 'No data';
+}
+
+// ═══════════════════════════════════════════
+// SQL QUERY (via Supabase PostgREST RPC)
+// ═══════════════════════════════════════════
+function setupQuickQueries() {
+  const qs = [
+    {label:'Depts by state',  sql:"SELECT state, COUNT(*) as n FROM departments GROUP BY state ORDER BY n DESC LIMIT 20"},
+    {label:'Avg RT by peer',  sql:"SELECT peer_group, ROUND(AVG(response_time_avg)::numeric,2) as avg_rt, COUNT(*) as n FROM departments GROUP BY peer_group ORDER BY peer_group"},
+    {label:'Top containment', sql:"SELECT dept_name, state, containment_rate, peer_group FROM departments WHERE containment_rate IS NOT NULL ORDER BY containment_rate DESC LIMIT 15"},
+    {label:'Career depts',    sql:"SELECT dept_name, state, career_pct, response_time_avg FROM departments WHERE dept_type='Career' ORDER BY response_time_avg ASC LIMIT 20"},
+    {label:'Schema',          sql:"SELECT column_name, data_type FROM information_schema.columns WHERE table_name='departments' ORDER BY ordinal_position"},
+  ];
+  document.getElementById('quick-queries').innerHTML = qs.map(q =>
+    `<button class="btn" onclick="document.getElementById('sql-input').value=${JSON.stringify(q.sql)}">${q.label}</button>`
+  ).join('');
+}
+
+async function runSQL() {
+  const sql = document.getElementById('sql-input').value.trim();
+  if (!sql || !SUPABASE_URL) return;
+  document.getElementById('sql-status').textContent = 'Running…';
+  try {
+    const t0 = performance.now();
+    // Use Supabase RPC endpoint for arbitrary SQL (requires pg_net or exec_sql)
+    // Fallback: parse simple SELECT from departments and use REST filter
+    const res = await sbFetch('/rest/v1/rpc/exec_sql', {
+      method: 'POST',
+      body: JSON.stringify({ sql })
+    });
+    const dt = (performance.now() - t0).toFixed(0);
+    if (!res.ok) {
+      // Friendly message if exec_sql not set up yet
+      const err = await res.json();
+      document.getElementById('sql-result').innerHTML =
+        `<div style="margin-top:12px;padding:12px;background:var(--surface);border-radius:8px;font-size:11px;color:var(--text2);font-family:'DM Mono',monospace">
+          <div style="color:var(--yellow);margin-bottom:6px">⚠ exec_sql not configured</div>
+          To enable arbitrary SQL in the browser, create this function in your Supabase SQL editor:<br><br>
+          <span style="color:var(--blue2)">CREATE OR REPLACE FUNCTION exec_sql(sql text)<br>
+          RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$<br>
+          DECLARE result json;<br>
+          BEGIN EXECUTE 'SELECT json_agg(t) FROM (' || sql || ') t' INTO result;<br>
+          RETURN result; END; $$;</span><br><br>
+          Until then, use the pre-built quick queries above which use the REST API directly.
+        </div>`;
+      document.getElementById('sql-status').textContent = '';
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('sql-status').textContent = `${Array.isArray(data) ? data.length : '?'} rows · ${dt}ms`;
+    if (!data || !data.length) { document.getElementById('sql-result').innerHTML='<div style="padding:10px;font-size:11px;color:var(--text2)">No rows returned</div>'; return; }
+    const cols = Object.keys(data[0]);
+    document.getElementById('sql-result').innerHTML =
+      `<div class="table-wrap" style="margin-top:10px"><table class="data-table"><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${data.slice(0,200).map(row=>`<tr>${cols.map(c=>`<td>${row[c]??'—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  } catch(e) {
+    document.getElementById('sql-result').innerHTML = `<div style="padding:10px;font-size:11px;color:var(--accent);font-family:'DM Mono',monospace">${e.message}</div>`;
+    document.getElementById('sql-status').textContent = '';
+  }
+}
+
+// ═══════════════════════════════════════════
+// STATS HELPERS
+// ═══════════════════════════════════════════
+function vals(arr,k){return arr.map(d=>+d[k]).filter(v=>!isNaN(v)&&isFinite(v))}
+function mean(a){return a.length?a.reduce((s,v)=>s+v,0)/a.length:NaN}
+function std(a){const m=mean(a);return a.length?Math.sqrt(a.map(v=>(v-m)**2).reduce((s,v)=>s+v,0)/a.length):NaN}
+function pct(a,p){const s=[...a].sort((x,y)=>x-y);const i=(p/100)*(s.length-1);const lo=Math.floor(i);return s[lo]+(i-lo)*(s[lo+1]-s[lo]||0)}
+function pctRank(a,v){return(a.filter(x=>x<=v).length/a.length*100).toFixed(1)}
+function pearson(a,b){const n=Math.min(a.length,b.length);if(n<3)return NaN;const ma=mean(a.slice(0,n)),mb=mean(b.slice(0,n));let num=0,da=0,db=0;for(let i=0;i<n;i++){num+=(a[i]-ma)*(b[i]-mb);da+=(a[i]-ma)**2;db+=(b[i]-mb)**2;}return da*db===0?0:num/Math.sqrt(da*db);}
+function ols(xs,ys){const n=xs.length,mx=mean(xs),my=mean(ys);let sxy=0,sxx=0;for(let i=0;i<n;i++){sxy+=(xs[i]-mx)*(ys[i]-my);sxx+=(xs[i]-mx)**2;}const b1=sxy/sxx,b0=my-b1*mx;const yhat=xs.map(x=>b0+b1*x);const ssr=ys.reduce((s,y,i)=>s+(y-yhat[i])**2,0);const sst=ys.reduce((s,y)=>s+(y-my)**2,0);return{b0,b1,r2:1-ssr/sst,r:Math.sqrt(Math.abs(1-ssr/sst))*Math.sign(b1),yhat,residuals:ys.map((y,i)=>y-yhat[i]),se:Math.sqrt(ssr/(n-2))};}
+function corrColor(r){if(isNaN(r))return 'rgba(255,255,255,0.03)';const t=Math.round(Math.abs(r)*200);return r>0?`rgb(18,${50+t},${38+Math.round(t*.4)})`:`rgb(${70+t},18,18)`;}
+
+// ═══════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════
+const TITLES={overview:'Dashboard',lookup:'Dept. Lookup',map:'State Map',compare:'Multi-Dept Compare',
+  trends:'Time Series',peers:'Peer Groups',correlations:'Correlations',scatter:'Scatter Explorer',
+  regression:'OLS Regression',rankings:'Rankings',distributions:'Distributions',sqlquery:'SQL Query',rawdata:'Raw Data'};
+
+function nav(p,el){
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+  document.getElementById('page-'+p).classList.add('active');
+  if(el)el.classList.add('active');
+  document.getElementById('page-title').textContent=TITLES[p]||p;
+  if(DATA.length)renderPage(p);
+}
+function renderPage(p){
+  if(p==='overview')renderOverview();
+  else if(p==='lookup'){}
+  else if(p==='map')renderMap();
+  else if(p==='compare')renderCompare();
+  else if(p==='trends')renderTrends();
+  else if(p==='peers')renderPeers();
+  else if(p==='correlations')renderCorr();
+  else if(p==='scatter')renderScatter();
+  else if(p==='regression')renderRegression();
+  else if(p==='rankings')renderRankings();
+  else if(p==='distributions')renderDist();
+  else if(p==='rawdata')renderTable(DATA);
+}
+
+function populateSelects(){
+  const keys=METRICS.map(m=>m.key).filter(k=>DATA.some(d=>d[k]!=null&&!isNaN(d[k])));
+  ['sc-x','sc-y','reg-y','reg-x','dist-m','ts-metric','map-metric'].forEach(id=>{
+    const el=document.getElementById(id);if(!el)return;
+    const prev=el.value;
+    el.innerHTML=keys.map(k=>{const m=METRICS.find(m=>m.key===k)||{label:k};return`<option value="${k}"${k===prev?' selected':''}>${m.label}</option>`;}).join('');
+  });
+  const sx=document.getElementById('sc-x'),sy=document.getElementById('sc-y');
+  if(sx&&sy&&sx.value===sy.value&&sy.options.length>1)sy.selectedIndex=1;
+  const rx=document.getElementById('reg-x'),ry=document.getElementById('reg-y');
+  if(rx&&ry&&rx.value===ry.value&&rx.options.length>1)rx.selectedIndex=1;
+}
+function populateDL(){
+  const items=DATA.slice(0,300).map(d=>`<option value="${d.STATE_FDID||''}">${d.DEPT_NAME||''} (${d.STATE_FDID||''})</option>`).join('');
+  ['fdid-dl','cmp-dl'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=items;});
+}
+
+// ═══════════════════════════════════════════
+// OVERVIEW
+// ═══════════════════════════════════════════
+function renderOverview(){
+  document.getElementById('ov-desc').textContent=`${DATA.length.toLocaleString()} departments · ${[...new Set(DATA.map(d=>d.STATE))].length} states · quality-filtered NFIRS 2024`;
+  const kpis=[
+    {l:'Departments',v:DATA.length.toLocaleString(),s:'Quality-filtered',c:'neu'},
+    {l:'Avg Response Time',v:mean(vals(DATA,'RESPONSE_TIME_AVG')).toFixed(1)+' min',s:'National avg',c:'warn'},
+    {l:'Avg Containment',v:mean(vals(DATA,'CONTAINMENT_RATE')).toFixed(1)+'%',s:'Structure fires',c:'good'},
+    {l:'Avg Adj. Loss',v:mean(vals(DATA,'PROP_LOSS_ADJ')).toFixed(2)+'%',s:'Wealth-adjusted',c:'neu'},
+    {l:'FF / 1000 Inc',v:mean(vals(DATA,'FF_PER_1000_INC')).toFixed(1),s:'Workload-adjusted',c:'neu'},
+    {l:'Total Incidents',v:(DATA.reduce((s,d)=>s+(+d.TOTAL_INCIDENTS||0),0)/1000).toFixed(0)+'k',s:'All departments',c:'neu'},
+  ];
+  document.getElementById('ov-kpis').innerHTML=kpis.map(k=>`<div class="kpi ${k.c}"><div class="kpi-label">${k.l}</div><div class="kpi-value">${k.v}</div><div class="kpi-sub">${k.s}</div></div>`).join('');
+  drawHist('ch-rt-dist',vals(DATA,'RESPONSE_TIME_AVG').filter(v=>v<40),'Response Time (min)','#3b8fdd');
+  const groups=['XS','S','M','L','XL'];
+  mk('ch-contain',ctx=>new Chart(ctx,{type:'bar',data:{labels:groups,datasets:[{data:groups.map(g=>+mean(vals(DATA.filter(d=>d.PEER_GROUP===g),'CONTAINMENT_RATE')).toFixed(2)),backgroundColor:groups.map(g=>PEER_C[g]+'bb'),borderRadius:5,borderSkipped:false}]},options:cOpts('Containment Rate (%)')}));
+  const types={};DATA.forEach(d=>{const t=d.DEPT_TYPE||'Unknown';types[t]=(types[t]||0)+1});
+  mk('ch-types',ctx=>new Chart(ctx,{type:'doughnut',data:{labels:Object.keys(types),datasets:[{data:Object.values(types),backgroundColor:['#3b8fdd','#34c472','#f5bc44','#ff5533','#9b72ff'],borderWidth:0}]},options:{plugins:{legend:{labels:{color:'#8b90a0',font:{family:'DM Mono',size:10}}}}}}));
+  const sm={};DATA.forEach(d=>{if(!sm[d.STATE])sm[d.STATE]=[];sm[d.STATE].push(+d.RESPONSE_TIME_AVG||0)});
+  const sa=Object.entries(sm).map(([s,a])=>({s,rt:mean(a.filter(v=>v>0))})).filter(x=>!isNaN(x.rt)).sort((a,b)=>a.rt-b.rt).slice(0,12);
+  mk('ch-states',ctx=>new Chart(ctx,{type:'bar',data:{labels:sa.map(x=>x.s),datasets:[{data:sa.map(x=>+x.rt.toFixed(2)),backgroundColor:'#ff5533bb',borderRadius:4,borderSkipped:false}]},options:cOpts('Avg Response Time (min)')}));
+}
+
+// ═══════════════════════════════════════════
+// LOOKUP
+// ═══════════════════════════════════════════
+function lookupDept(q){
+  if(!DATA.length||!q)return;
+  const uq=q.trim().toUpperCase();
+  const dept=DATA.find(d=>(d.STATE_FDID||'').toUpperCase()===uq||(d.DEPT_NAME||'').toUpperCase().includes(uq));
+  const el=document.getElementById('lookup-out');
+  if(!dept){el.innerHTML=`<div class="card" style="color:var(--text2)">No department found for "${q}"</div>`;return;}
+  const peers=DATA.filter(d=>d.PEER_GROUP===dept.PEER_GROUP);
+  const cards=METRICS.map(m=>{
+    const v=+dept[m.key];if(isNaN(v))return'';
+    const pv=vals(peers,m.key);const pr=+pctRank(pv,v);const eff=m.inv?100-pr:pr;
+    const cls=eff>=66?'good':eff>=33?'warn':'bad';
+    return`<div class="kpi ${cls}"><div class="kpi-label">${m.label}</div><div class="kpi-value">${v.toLocaleString(undefined,{maximumFractionDigits:2})}</div><div class="kpi-sub">Peer avg: ${mean(pv).toFixed(2)}</div><div class="kpi-delta ${eff>=50?'pos':'neg'}">${pr}th pct in peer group</div></div>`;
+  }).join('');
+  el.innerHTML=`<div class="card" style="margin-bottom:14px;border-color:rgba(255,85,51,.3)">
+    <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;margin-bottom:3px">${dept.DEPT_NAME||dept.STATE_FDID}</div>
+    <div style="font-size:11px;color:var(--text2);font-family:'DM Mono',monospace">${dept.STATE||''} · ${dept.DEPT_TYPE||''} · Peer <span style="color:${PEER_C[dept.PEER_GROUP]||'#888'}">${dept.PEER_GROUP}</span> · ${(+dept.TOTAL_INCIDENTS||0).toLocaleString()} incidents</div>
+  </div><div class="kpi-grid">${cards}</div>
+  <div class="card"><div class="card-title">Peer position (${dept.PEER_GROUP}, n=${peers.length})</div>
+  ${METRICS.filter(m=>!isNaN(+dept[m.key])).map(m=>{const v=+dept[m.key];const pv=vals(peers,m.key);const mn=Math.min(...pv),mx=Math.max(...pv);const p=mx===mn?50:((v-mn)/(mx-mn)*100).toFixed(1);const col=m.inv?(p<40?'#34c472':p<70?'#f5bc44':'#ff5533'):(p>60?'#34c472':p>30?'#f5bc44':'#ff5533');return`<div class="peer-bar"><div class="peer-bar-label">${m.label}</div><div class="peer-bar-track"><div class="peer-bar-fill" style="width:${p}%;background:${col}"></div></div><div class="peer-bar-val">${v.toFixed?v.toFixed(2):v}</div></div>`;}).join('')}</div>`;
+}
+
+// ═══════════════════════════════════════════
+// MAP
+// ═══════════════════════════════════════════
+async function renderMap(){
+  if(!DATA.length)return;
+  const key=document.getElementById('map-metric').value;
+  const peerF=document.getElementById('map-peer').value;
+  const mLabel=METRICS.find(m=>m.key===key)?.label||key;
+  const mInv=METRICS.find(m=>m.key===key)?.inv||false;
+  const subset=peerF?DATA.filter(d=>d.PEER_GROUP===peerF):DATA;
+  const sm={};subset.forEach(d=>{const v=+d[key];if(!isNaN(v)&&isFinite(v)){if(!sm[d.STATE])sm[d.STATE]=[];sm[d.STATE].push(v);}});
+  const sa={};Object.keys(sm).forEach(s=>{sa[s]=mean(sm[s]);});
+  const vals2=Object.values(sa).filter(v=>!isNaN(v));
+  const minV=Math.min(...vals2),maxV=Math.max(...vals2);
+  const colorFn=v=>{if(isNaN(v))return'#1e2229';const t=(v-minV)/(maxV-minV||1);const eff=mInv?1-t:t;if(eff>.5){const x=(eff-.5)*2;return`rgb(${Math.round(50+205*x)},${Math.round(196-152*x)},${Math.round(114-90*x)})`;}else{const x=eff*2;return`rgb(${Math.round(59-9*x)},${Math.round(143+53*x)},${Math.round(221-107*x)})`;}};
+  if(!mapGeo){try{const r=await fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json');mapGeo=await r.json();}catch{document.getElementById('map-container').innerHTML='<div style="color:var(--text2);padding:20px;font-size:12px">Map requires internet connection.</div>';return;}}
+  const W=800,H=500,projection=d3.geoAlbersUsa().scale(1000).translate([W/2,H/2]),path=d3.geoPath().projection(projection);
+  const states=topojson.feature(mapGeo,mapGeo.objects.states);
+  const fips={'01':'AL','02':'AK','04':'AZ','05':'AR','06':'CA','08':'CO','09':'CT','10':'DE','11':'DC','12':'FL','13':'GA','15':'HI','16':'ID','17':'IL','18':'IN','19':'IA','20':'KS','21':'KY','22':'LA','23':'ME','24':'MD','25':'MA','26':'MI','27':'MN','28':'MS','29':'MO','30':'MT','31':'NE','32':'NV','33':'NH','34':'NJ','35':'NM','36':'NY','37':'NC','38':'ND','39':'OH','40':'OK','41':'OR','42':'PA','44':'RI','45':'SC','46':'SD','47':'TN','48':'TX','49':'UT','50':'VT','51':'VA','53':'WA','54':'WV','55':'WI','56':'WY'};
+  let svg=`<svg width="100%" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  states.features.forEach(f=>{const abbr=fips[f.id.toString().padStart(2,'0')]||'';const v=sa[abbr];const d=path(f)||'';svg+=`<path class="map-state" d="${d}" fill="${colorFn(v)}" stroke="#0a0c10" stroke-width=".8" onmouseenter="showTip(event,'${abbr}','${isNaN(v)?'No data':v.toFixed(2)}',${sm[abbr]?.length||0})" onmouseleave="hideTip()"/>`;});
+  svg+='</svg>';
+  document.getElementById('map-container').innerHTML=svg;
+  document.getElementById('map-legend').innerHTML=`<span>${mLabel}</span><div style="height:8px;flex:1;border-radius:4px;background:linear-gradient(to right,#3b8fdd,#f5bc44,#34c472);min-width:80px"></div><span>${minV.toFixed(1)} — ${maxV.toFixed(1)}</span>`;
+  const ranked=Object.entries(sa).sort((a,b)=>mInv?a[1]-b[1]:b[1]-a[1]);
+  document.getElementById('map-table').innerHTML=`<table class="data-table"><thead><tr><th>Rank</th><th>State</th><th>${mLabel}</th><th>Depts</th></tr></thead><tbody>${ranked.map(([s,v],i)=>`<tr><td>#${i+1}</td><td class="hi">${s}</td><td>${v.toFixed(2)}</td><td>${sm[s]?.length||0}</td></tr>`).join('')}</tbody></table>`;
+}
+function showTip(e,s,v,n){const t=document.getElementById('map-tip');t.innerHTML=`<strong style="font-family:'Syne',sans-serif">${s}</strong><br><span style="font-family:'DM Mono',monospace;font-size:10px">${v} · ${n} dept${n!==1?'s':''}</span>`;t.style.left=(e.clientX+14)+'px';t.style.top=(e.clientY-10)+'px';t.className='map-tooltip show';}
+function hideTip(){document.getElementById('map-tip').className='map-tooltip';}
+
+// ═══════════════════════════════════════════
+// COMPARE
+// ═══════════════════════════════════════════
+function addToCompare(q){if(!q||pinnedDepts.length>=6)return;const uq=q.trim().toUpperCase();const dept=DATA.find(d=>(d.STATE_FDID||'').toUpperCase()===uq||(d.DEPT_NAME||'').toUpperCase().includes(uq));if(!dept||pinnedDepts.find(d=>d.STATE_FDID===dept.STATE_FDID))return;pinnedDepts.push(dept);document.getElementById('cmp-search').value='';renderCompare();}
+function removeFromCompare(fdid){pinnedDepts=pinnedDepts.filter(d=>d.STATE_FDID!==fdid);renderCompare();}
+function clearCompare(){pinnedDepts=[];renderCompare();}
+function renderCompare(){
+  const cols=['#3b8fdd','#34c472','#f5bc44','#ff5533','#9b72ff','#ff9966'];
+  document.getElementById('cmp-slots').innerHTML=pinnedDepts.map((d,i)=>`<div class="compare-slot pinned"><button class="remove-btn" onclick="removeFromCompare('${d.STATE_FDID}')">×</button><div style="width:10px;height:10px;border-radius:50%;background:${cols[i]};display:inline-block;margin-right:6px;vertical-align:middle"></div><div class="compare-slot-name" style="display:inline">${d.DEPT_NAME||d.STATE_FDID}</div><div class="compare-slot-meta">${d.STATE||''} · ${d.PEER_GROUP} · ${(+d.TOTAL_INCIDENTS||0).toLocaleString()} inc</div></div>`).join('')+(pinnedDepts.length<6?`<div class="compare-slot" style="border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px;font-family:'DM Mono',monospace;cursor:pointer" onclick="document.getElementById('cmp-search').focus()">+ Add dept</div>`:'');
+  const el=document.getElementById('cmp-content');
+  if(pinnedDepts.length<2){el.innerHTML='<div class="card" style="color:var(--text2);font-size:12px">Add at least 2 departments to compare.</div>';return;}
+  const avail=METRICS.filter(m=>pinnedDepts.some(d=>!isNaN(+d[m.key])));
+  const allVals=avail.map(m=>{const all=vals(DATA,m.key);return{m,mn:Math.min(...all),mx:Math.max(...all)};});
+  el.innerHTML=`<div class="chart-grid c2"><div class="card"><div class="card-title">Performance Radar</div><canvas id="ch-radar" style="max-height:320px"></canvas></div><div class="card"><div class="card-title">Side-by-Side</div><div id="cmp-bars"></div></div></div><div class="card" style="margin-top:14px"><div class="card-title">Full Metric Table</div><div class="table-wrap" id="cmp-table"></div></div>`;
+  setTimeout(()=>{
+    mk('ch-radar',ctx=>new Chart(ctx,{type:'radar',data:{labels:avail.map(m=>m.label.split(' ').slice(0,2).join(' ')),datasets:pinnedDepts.map((d,i)=>({label:d.DEPT_NAME||d.STATE_FDID,data:allVals.map(({m,mn,mx})=>mx===mn?50:+((+d[m.key]-mn)/(mx-mn)*100).toFixed(1)),backgroundColor:cols[i]+'33',borderColor:cols[i],borderWidth:2,pointRadius:3,pointBackgroundColor:cols[i]}))},options:{plugins:{legend:{labels:{color:'#8b90a0',font:{family:'DM Mono',size:10},boxWidth:10}}},scales:{r:{ticks:{color:'#555b6a',backdropColor:'transparent',font:{family:'DM Mono',size:8}},grid:{color:'rgba(255,255,255,0.05)'},pointLabels:{color:'#8b90a0',font:{family:'DM Mono',size:10}}}}}}));
+    document.getElementById('cmp-bars').innerHTML=avail.slice(0,5).map(m=>{const mx=Math.max(...pinnedDepts.map(d=>+d[m.key]).filter(v=>!isNaN(v)));return`<div style="margin-bottom:12px"><div style="font-size:9.5px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:4px">${m.label}</div>${pinnedDepts.map((d,i)=>{const v=+d[m.key];return`<div class="peer-bar"><div class="peer-bar-label">${(d.DEPT_NAME||d.STATE_FDID).slice(0,18)}</div><div class="peer-bar-track"><div class="peer-bar-fill" style="width:${isNaN(v)?0:(v/mx*100).toFixed(1)}%;background:${cols[i]}"></div></div><div class="peer-bar-val">${isNaN(v)?'—':v.toFixed(2)}</div></div>`;}).join('')}</div>`;}).join('');
+    document.getElementById('cmp-table').innerHTML=`<table class="data-table"><thead><tr><th>Metric</th>${pinnedDepts.map((d,i)=>`<th style="color:${cols[i]}">${(d.DEPT_NAME||d.STATE_FDID).slice(0,16)}</th>`).join('')}</tr></thead><tbody>${avail.map(m=>`<tr><td style="color:var(--text2)">${m.label}</td>${pinnedDepts.map(d=>{const v=+d[m.key];return`<td>${isNaN(v)?'—':v.toFixed(2)}</td>`;}).join('')}</tr>`).join('')}</tbody></table>`;
+  },50);
+}
+
+// ═══════════════════════════════════════════
+// TIME SERIES, PEERS, CORR, SCATTER, REG, RANKINGS, DIST, TABLE
+// (identical logic to v2 — operates on DATA array)
+// ═══════════════════════════════════════════
+function renderTrends(){
+  const key=document.getElementById('ts-metric').value;const grpBy=document.getElementById('ts-group').value;const mLabel=METRICS.find(m=>m.key===key)?.label||key;
+  const groups=[...new Set(DATA.map(d=>d[grpBy]))].filter(Boolean).sort().slice(0,8);
+  const cols=['#3b8fdd','#34c472','#f5bc44','#ff5533','#9b72ff','#ff9966','#66cccc','#cc6699'];
+  const datasets=groups.map((g,i)=>{const sub=DATA.filter(d=>d[grpBy]===g);return{label:g,data:[{x:g,y:+mean(vals(sub,key)).toFixed(3)}],backgroundColor:cols[i%cols.length]+'99',borderRadius:4,borderSkipped:false};});
+  mk('ch-trends',ctx=>new Chart(ctx,{type:'bar',data:{datasets},options:{...cOpts(mLabel),plugins:{legend:{labels:{color:'#8b90a0',font:{family:'DM Mono',size:10},boxWidth:10}}},parsing:{xAxisKey:'x',yAxisKey:'y'}}}));
+}
+function setPeer(g,el){document.querySelectorAll('#page-peers .filter-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');curPeer=g;renderPeers();}
+function renderPeers(){
+  let sub=curPeer==='all'?DATA:curPeer==='career'?DATA.filter(d=>+d.CAREER_PCT>60):curPeer==='vol'?DATA.filter(d=>+d.CAREER_PCT<=20):DATA.filter(d=>d.PEER_GROUP===curPeer);
+  const el=document.getElementById('peers-out');if(!sub.length){el.innerHTML='<div class="card" style="color:var(--text2)">No departments.</div>';return;}
+  const groups=[...new Set(sub.map(d=>d.PEER_GROUP))].sort();
+  const mHtml=METRICS.slice(0,4).map(m=>{const data=groups.map(g=>{const s=sub.filter(d=>d.PEER_GROUP===g);return{g,mn:mean(vals(s,m.key)),n:s.length};}).filter(x=>!isNaN(x.mn));const mx=Math.max(...data.map(x=>x.mn));return`<div class="card" style="margin-bottom:10px"><div class="card-title">${m.label}</div>${data.map(x=>`<div class="peer-bar"><div class="peer-bar-label" style="width:100px">${x.g} (n=${x.n})</div><div class="peer-bar-track"><div class="peer-bar-fill" style="width:${(x.mn/mx*100).toFixed(1)}%;background:${PEER_C[x.g]||'#3b8fdd'}"></div></div><div class="peer-bar-val">${x.mn.toFixed(2)}</div></div>`).join('')}</div>`;}).join('');
+  el.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px"><div>${mHtml}</div><div class="card"><div class="card-title">Radar</div><canvas id="ch-peer-radar" style="max-height:320px"></canvas></div></div>`;
+  setTimeout(()=>{const keys=METRICS.slice(0,4).map(m=>m.key);mk('ch-peer-radar',ctx=>new Chart(ctx,{type:'radar',data:{labels:METRICS.slice(0,4).map(m=>m.label.split(' ').slice(0,2).join(' ')),datasets:groups.map((g,i)=>{const s=sub.filter(d=>d.PEER_GROUP===g);return{label:g,data:keys.map(k=>+mean(vals(s,k)).toFixed(2)),backgroundColor:(PEER_C[g]||'#3b8fdd')+'33',borderColor:PEER_C[g]||'#3b8fdd',borderWidth:2,pointRadius:2};})},options:{plugins:{legend:{labels:{color:'#8b90a0',font:{family:'DM Mono',size:10},boxWidth:10}}},scales:{r:{ticks:{color:'#555b6a',backdropColor:'transparent',font:{family:'DM Mono',size:8}},grid:{color:'rgba(255,255,255,0.05)'},pointLabels:{color:'#8b90a0',font:{family:'DM Mono',size:10}}}}}}));},50);
+}
+function renderCorr(){
+  const avail=METRICS.filter(m=>vals(DATA,m.key).length>5);const n=avail.length;const matrix=[];
+  let th=`<table class="corr-table"><tr><th></th>`;avail.forEach(m=>{th+=`<th>${m.key.split('_').slice(0,2).join('_')}</th>`;});th+='</tr>';
+  avail.forEach((m1,i)=>{const row=[];th+=`<tr><th style="text-align:right;font-size:8px">${m1.key.split('_').slice(0,2).join('<br>')}</th>`;avail.forEach((m2,j)=>{const v1=vals(DATA,m1.key),v2=vals(DATA,m2.key);const pairs=v1.map((v,k)=>[v,v2[k]]).filter(p=>!isNaN(p[0])&&!isNaN(p[1]));const r=i===j?1:pearson(pairs.map(p=>p[0]),pairs.map(p=>p[1]));row.push(r);const bg=corrColor(r);const tc=i===j?'var(--text3)':Math.abs(r)>.4?'#fff':'var(--text2)';th+=`<td style="background:${bg};color:${tc}" title="${m1.label} vs ${m2.label}: r=${isNaN(r)?'N/A':r.toFixed(3)}" onclick="jumpScatter('${m1.key}','${m2.key}')">${i===j?'—':isNaN(r)?'NA':r.toFixed(2)}</td>`;});th+='</tr>';matrix.push(row);});th+='</table>';
+  document.getElementById('corr-matrix').innerHTML=th;
+  const pairs2=[];for(let i=0;i<n;i++)for(let j=i+1;j<n;j++)if(!isNaN(matrix[i][j]))pairs2.push({m1:avail[i],m2:avail[j],r:matrix[i][j]});
+  pairs2.sort((a,b)=>Math.abs(b.r)-Math.abs(a.r));
+  document.getElementById('corr-hi').innerHTML=pairs2.slice(0,8).map(p=>{const col=p.r>0?'#34c472':'#ff5533';return`<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;padding:7px 10px;background:var(--surface);border-radius:6px;cursor:pointer" onclick="jumpScatter('${p.m1.key}','${p.m2.key}')"><span style="font-size:14px;color:${col};font-weight:700;min-width:42px;font-family:'DM Mono',monospace">${p.r>0?'+':''}${p.r.toFixed(2)}</span><span style="font-size:10px;color:var(--text2);font-family:'DM Mono',monospace;line-height:1.4">${p.m1.label}<br>vs ${p.m2.label}</span></div>`;}).join('');
+}
+function jumpScatter(k1,k2){nav('scatter',document.querySelector('.nav-item[onclick*="scatter"]'));setTimeout(()=>{document.getElementById('sc-x').value=k1;document.getElementById('sc-y').value=k2;updateScatter();},80);}
+function renderScatter(){if(!document.getElementById('sc-x').options.length)populateSelects();updateScatter();}
+function updateScatter(){
+  const xk=document.getElementById('sc-x').value,yk=document.getElementById('sc-y').value,colBy=document.getElementById('sc-col').value,showReg=document.getElementById('sc-reg').checked;if(!xk||!yk)return;
+  const pairs=DATA.map(d=>({x:+d[xk],y:+d[yk],grp:d[colBy]||d.PEER_GROUP,name:d.DEPT_NAME||d.STATE_FDID})).filter(p=>!isNaN(p.x)&&!isNaN(p.y)&&isFinite(p.x)&&isFinite(p.y));
+  const groups=[...new Set(pairs.map(p=>p.grp))].sort();const cols=['#3b8fdd','#34c472','#f5bc44','#ff5533','#9b72ff','#ff9966'];
+  const dss=groups.map((g,i)=>({label:g,data:pairs.filter(p=>p.grp===g).map(p=>({x:p.x,y:p.y,name:p.name})),backgroundColor:(PEER_C[g]||cols[i%cols.length])+'99',pointRadius:3}));
+  if(showReg){const xs=pairs.map(p=>p.x),ys=pairs.map(p=>p.y),reg=ols(xs,ys),mnx=Math.min(...xs),mxx=Math.max(...xs);dss.push({label:'OLS',data:[{x:mnx,y:reg.b0+reg.b1*mnx},{x:mxx,y:reg.b0+reg.b1*mxx}],type:'line',borderColor:'#fff',borderDash:[5,3],pointRadius:0,borderWidth:1.5,fill:false});const xM=METRICS.find(m=>m.key===xk),yM=METRICS.find(m=>m.key===yk);document.getElementById('sc-reg-info').innerHTML=`<div class="reg-card"><div class="card-title">LINEAR FIT</div><div class="reg-equation">${yM?.label||yk} = ${reg.b0.toFixed(3)} + ${reg.b1.toFixed(3)} × ${xM?.label||xk}</div><div class="reg-stats"><div class="reg-stat">r² <span>${reg.r2.toFixed(4)}</span></div><div class="reg-stat">r <span>${reg.r.toFixed(4)}</span></div><div class="reg-stat">SE <span>${reg.se.toFixed(3)}</span></div><div class="reg-stat">n <span>${pairs.length}</span></div></div></div>`;}
+  else document.getElementById('sc-reg-info').innerHTML='';
+  mk('ch-scatter',ctx=>new Chart(ctx,{type:'scatter',data:{datasets:dss},options:{...cOpts('',false),scales:{x:scO(METRICS.find(m=>m.key===xk)?.label||xk),y:scO(METRICS.find(m=>m.key===yk)?.label||yk)},plugins:{tooltip:{callbacks:{label:c=>c.raw.name?`${c.raw.name}: (${c.raw.x?.toFixed(2)}, ${c.raw.y?.toFixed(2)})`:undefined}},legend:{labels:{color:'#8b90a0',font:{family:'DM Mono',size:10},boxWidth:10}}}}}));
+}
+function renderRegression(){if(!document.getElementById('reg-x').options.length)populateSelects();runReg();}
+function runReg(){
+  const xk=document.getElementById('reg-x').value,yk=document.getElementById('reg-y').value;if(!xk||!yk||xk===yk)return;
+  const pairs=DATA.map(d=>({x:+d[xk],y:+d[yk]})).filter(p=>!isNaN(p.x)&&!isNaN(p.y)&&isFinite(p.x)&&isFinite(p.y));if(pairs.length<5)return;
+  const xs=pairs.map(p=>p.x),ys=pairs.map(p=>p.y),reg=ols(xs,ys);
+  const xM=METRICS.find(m=>m.key===xk),yM=METRICS.find(m=>m.key===yk);
+  document.getElementById('reg-out').style.display='';
+  document.getElementById('reg-eq').textContent=`${yM?.label||yk} = ${reg.b0.toFixed(4)} + ${reg.b1.toFixed(4)} × ${xM?.label||xk}`;
+  document.getElementById('reg-stats').innerHTML=`<div class="reg-stat">r² <span>${reg.r2.toFixed(4)}</span></div><div class="reg-stat">r <span>${reg.r.toFixed(4)}</span></div><div class="reg-stat">β₁ <span>${reg.b1.toFixed(4)}</span></div><div class="reg-stat">β₀ <span>${reg.b0.toFixed(4)}</span></div><div class="reg-stat">SE <span>${reg.se.toFixed(4)}</span></div><div class="reg-stat">n <span>${pairs.length}</span></div>`;
+  const mnx=Math.min(...xs),mxx=Math.max(...xs);
+  mk('ch-reg',ctx=>new Chart(ctx,{type:'scatter',data:{datasets:[{label:'Observations',data:pairs,backgroundColor:'#3b8fdd77',pointRadius:2.5},{label:'OLS',data:[{x:mnx,y:reg.b0+reg.b1*mnx},{x:mxx,y:reg.b0+reg.b1*mxx}],type:'line',borderColor:'#ff5533',borderDash:[4,3],pointRadius:0,borderWidth:2,fill:false}]},options:{...cOpts('',false),scales:{x:scO(xM?.label||xk),y:scO(yM?.label||yk)},plugins:{legend:{labels:{color:'#8b90a0',font:{family:'DM Mono',size:10},boxWidth:10}}}}}));
+  mk('ch-res',ctx=>new Chart(ctx,{type:'scatter',data:{datasets:[{label:'Residuals',data:xs.map((x,i)=>({x,y:reg.residuals[i]})),backgroundColor:'#f5bc4477',pointRadius:2},{label:'Zero',data:[{x:mnx,y:0},{x:mxx,y:0}],type:'line',borderColor:'rgba(255,255,255,.18)',pointRadius:0,borderWidth:1}]},options:{...cOpts('',false),scales:{x:scO(xM?.label||xk),y:scO('Residual')},plugins:{legend:{display:false}}}}));
+}
+function renderRankings(){
+  const metrics=METRICS.filter(m=>vals(DATA,m.key).length>5);
+  document.getElementById('rankings-out').innerHTML=metrics.slice(0,6).map(m=>{const sorted=[...DATA].filter(d=>!isNaN(+d[m.key])).sort((a,b)=>m.inv?(+a[m.key])-(+b[m.key]):(+b[m.key])-(+a[m.key]));const top5=sorted.slice(0,5),bot5=sorted.slice(-5).reverse();const row=(d,r,g)=>`<tr><td><span class="badge ${g?'top':'low'}">#${r}</span></td><td class="hi">${(d.DEPT_NAME||d.STATE_FDID||'').slice(0,24)}</td><td>${(+d[m.key]).toFixed(2)}</td><td><span class="badge neu">${d.PEER_GROUP||''}</span></td></tr>`;return`<div class="card"><div class="card-title">${m.label}</div><div style="font-size:10px;color:var(--green);font-family:'DM Mono',monospace;margin-bottom:5px">▲ TOP 5</div><div class="table-wrap" style="margin-bottom:10px"><table class="data-table">${top5.map((d,i)=>row(d,i+1,true)).join('')}</table></div><div style="font-size:10px;color:var(--accent);font-family:'DM Mono',monospace;margin-bottom:5px">▼ BOTTOM 5</div><div class="table-wrap"><table class="data-table">${bot5.map((d,i)=>row(d,sorted.length-4+i,false)).join('')}</table></div></div>`;}).join('');
+}
+function renderDist(){if(!document.getElementById('dist-m').options.length)populateSelects();updateDist();}
+function updateDist(){
+  const key=document.getElementById('dist-m').value,fdid=document.getElementById('dist-fdid').value.trim().toUpperCase();
+  const arr=vals(DATA,key).filter(v=>isFinite(v)),m=METRICS.find(x=>x.key===key);
+  const mn=mean(arr),sd2=std(arr);
+  document.getElementById('dist-stats').innerHTML=[{l:'Mean',v:mn.toFixed(3)},{l:'Std Dev',v:sd2.toFixed(3)},{l:'Min',v:Math.min(...arr).toFixed(3)},{l:'P25',v:pct(arr,25).toFixed(3)},{l:'Median',v:pct(arr,50).toFixed(3)},{l:'P75',v:pct(arr,75).toFixed(3)},{l:'Max',v:Math.max(...arr).toFixed(3)},{l:'N',v:arr.length.toLocaleString()}].map(k=>`<div class="kpi neu"><div class="kpi-label">${k.l}</div><div class="kpi-value" style="font-size:16px">${k.v}</div></div>`).join('');
+  drawHist('ch-hist',arr,m?.label||key,'#3b8fdd');
+  let pctHtml='<div style="font-size:11px;color:var(--text2)">Enter a dept FDID to see its position</div>';
+  if(fdid){const dept=DATA.find(d=>(d.STATE_FDID||'').toUpperCase()===fdid);if(dept&&!isNaN(+dept[key])){const v=+dept[key],pr=+pctRank(arr,v),eff=m?.inv?100-pr:pr,col=eff>=66?'#34c472':eff>=33?'#f5bc44':'#ff5533';pctHtml=`<div style="font-size:12px;color:var(--text2);margin-bottom:10px">${dept.DEPT_NAME||fdid}: <span style="color:${col};font-weight:500">${pr}th percentile</span> (${v.toFixed(2)})</div>`;}}
+  document.getElementById('dist-pct-label').innerHTML=pctHtml;
+  const sorted=[...arr].sort((a,b)=>a-b),pts=Array.from({length:101},(_,i)=>({x:i,y:pct(sorted,i)}));
+  mk('ch-pct',ctx=>new Chart(ctx,{type:'line',data:{datasets:[{label:'Percentile',data:pts,borderColor:'#9b72ff',pointRadius:0,borderWidth:2,fill:true,backgroundColor:'rgba(155,114,255,.08)'}]},options:{...cOpts('',false),scales:{x:scO('Percentile'),y:scO(m?.label||key)},plugins:{legend:{display:false}},parsing:{xAxisKey:'x',yAxisKey:'y'}}}));
+}
+function renderTable(rows){
+  const vis=['STATE_FDID','DEPT_NAME','STATE','PEER_GROUP','DEPT_TYPE','TOTAL_INCIDENTS','RESPONSE_TIME_AVG','CONTAINMENT_RATE','PROP_LOSS_ADJ','FF_PER_1000_INC','CAREER_PCT'];
+  const cols=vis.filter(c=>rows.some(r=>r[c]!=null));
+  document.getElementById('tbl-wrap').innerHTML=`<table class="data-table"><thead><tr>${cols.map(c=>`<th onclick="sortT('${c}')">${c} ↕</th>`).join('')}</tr></thead><tbody>${rows.slice(0,500).map(r=>`<tr>${cols.map(c=>`<td>${r[c]??'—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  document.getElementById('tbl-count').textContent=`Showing ${Math.min(500,rows.length)} of ${rows.length}`;
+}
+function filterTable(q){const pg=document.getElementById('tbl-peer').value;let rows=DATA;if(pg)rows=rows.filter(d=>d.PEER_GROUP===pg);if(q){const ql=q.toLowerCase();rows=rows.filter(d=>Object.values(d).some(v=>String(v).toLowerCase().includes(ql)));}renderTable(rows);}
+function sortT(col){if(sortC===col)sortD*=-1;else{sortC=col;sortD=1;}renderTable([...DATA].sort((a,b)=>{const va=isNaN(+a[col])?String(a[col]):+a[col],vb=isNaN(+b[col])?String(b[col]):+b[col];return sortD*(va>vb?1:va<vb?-1:0);}));}
+
+// ═══════════════════════════════════════════
+// CHART HELPERS
+// ═══════════════════════════════════════════
+Chart.defaults.color='#8b90a0';Chart.defaults.font.family='DM Mono';
+function cOpts(){return{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1e2229',borderColor:'rgba(255,255,255,.1)',borderWidth:1,titleFont:{family:'DM Mono',size:10},bodyFont:{family:'DM Mono',size:10}}},scales:{x:scO(''),y:scO('')}};}
+function scO(label){return{title:{display:!!label,text:label,color:'#555b6a',font:{family:'DM Mono',size:9}},grid:{color:'rgba(255,255,255,.035)'},ticks:{color:'#555b6a',font:{family:'DM Mono',size:8}},border:{color:'rgba(255,255,255,.06)'}};}
+function drawHist(id,arr,label,color){if(!arr.length)return;const mn=Math.min(...arr),mx=Math.max(...arr),bins=18,w=(mx-mn)/bins;const counts=Array(bins).fill(0);arr.forEach(v=>{const i=Math.min(bins-1,Math.floor((v-mn)/w));counts[i]++;});mk(id,ctx=>new Chart(ctx,{type:'bar',data:{labels:counts.map((_,i)=>(mn+i*w).toFixed(1)),datasets:[{data:counts,backgroundColor:color+'99',borderRadius:3,borderSkipped:false}]},options:{...cOpts(),plugins:{legend:{display:false}}}}));}
+function mk(id,factory){if(CHART_INST[id]){CHART_INST[id].destroy();delete CHART_INST[id];}const el=document.getElementById(id);if(!el)return;CHART_INST[id]=factory(el.getContext('2d'));}
+</script>
+</body>
+</html>

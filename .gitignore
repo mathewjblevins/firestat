@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.env
+venv/
+.venv/
+
+# Secrets — never commit these
+.env.local
+secrets.json
+supabase_key.txt
+
+# Upload scripts — contain credentials, run locally only
+scripts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (if ever added)
+node_modules/
